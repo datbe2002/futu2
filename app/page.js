@@ -97,7 +97,7 @@ export default function Home() {
   const [errors, setErrors] = useState(initialErrorState);
   const [results, setResults] = useState(null);
   const [dcaResults, setDcaResults] = useState(null);
-  const [activeTab, setActiveTab] = useState("position"); // 'position', 'dca', or 'target'
+  const [activeTab, setActiveTab] = useState("triangle"); // 'position', 'dca', or 'target'
 
   // Validation function
   const validateNumber = (value, fieldName) => {
