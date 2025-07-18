@@ -15,6 +15,10 @@ const initialFormState = {
   orderType: "long",
   stopLoss: "",
   takeProfit: "",
+  // Add DCA fields
+  currentPrice: "",
+  dcaAmount: "",
+  targetEntry: "", // Add new field
 };
 
 export default function Home() {
@@ -25,9 +29,13 @@ export default function Home() {
     positionSize: "",
     stopLoss: "",
     takeProfit: "",
+    currentPrice: "",
+    dcaAmount: "",
+    targetEntry: "",
   });
 
   const [results, setResults] = useState(null);
+  const [dcaResults, setDcaResults] = useState(null);
 
   const handleClearForm = () => {
     setFormData(initialFormState);
@@ -36,8 +44,12 @@ export default function Home() {
       positionSize: "",
       stopLoss: "",
       takeProfit: "",
+      currentPrice: "",
+      dcaAmount: "",
+      targetEntry: "",
     });
     setResults(null);
+    setDcaResults(null);
   };
 
   const validateNumber = (value, fieldName) => {
@@ -51,6 +63,91 @@ export default function Home() {
       return `${fieldName} must be greater than 0`;
     }
     return "";
+  };
+
+  const calculateDCA = () => {
+    const { entryPrice, leverage, positionSize, currentPrice, dcaAmount } =
+      formData;
+
+    // Convert inputs to numbers
+    const entry = parseFloat(entryPrice);
+    const current = parseFloat(currentPrice);
+    const lev = parseFloat(leverage);
+    const size = parseFloat(positionSize);
+    const dca = parseFloat(dcaAmount);
+
+    // Real money calculations (without leverage)
+    const originalInvestment = size; // Original money invested
+    const dcaInvestment = dca; // DCA money invested
+    const totalInvestment = originalInvestment + dcaInvestment; // Total real money invested
+
+    // Calculate contract quantities
+    const originalContractQty = (size * lev) / entry;
+    const dcaContractQty = (dca * lev) / current;
+    const totalContractQty = originalContractQty + dcaContractQty;
+
+    // Calculate new average entry price
+    const newAverageEntry =
+      ((originalInvestment + dcaInvestment) * lev) / totalContractQty;
+
+    // Calculate real PnL
+    const currentValue = (totalContractQty * current) / lev; // Current value in real money
+    const unrealizedPnL = currentValue - totalInvestment; // Real money profit/loss
+
+    // Calculate ROI percentage
+    const roiPercentage = (unrealizedPnL / totalInvestment) * 100;
+
+    // Calculate breakeven price change needed from current price
+    const breakevenPriceChange = ((newAverageEntry - current) / current) * 100;
+
+    setDcaResults({
+      newAverageEntry: newAverageEntry.toFixed(2),
+      totalInvestment: totalInvestment.toFixed(2),
+      currentValue: currentValue.toFixed(2),
+      unrealizedPnL: unrealizedPnL.toFixed(2),
+      roiPercentage: roiPercentage.toFixed(2),
+      breakevenPriceChange: breakevenPriceChange.toFixed(2),
+      originalInvestment: originalInvestment.toFixed(2),
+      dcaInvestment: dcaInvestment.toFixed(2),
+      totalContractQty: totalContractQty.toFixed(4),
+      leveragedPosition: (totalInvestment * lev).toFixed(2),
+    });
+  };
+
+  const calculateTargetDCA = () => {
+    const { entryPrice, leverage, positionSize, currentPrice, targetEntry } =
+      formData;
+
+    if (!targetEntry) return;
+
+    // Convert inputs to numbers
+    const entry = parseFloat(entryPrice);
+    const current = parseFloat(currentPrice);
+    const target = parseFloat(targetEntry);
+    const size = parseFloat(positionSize);
+    const lev = parseFloat(leverage);
+
+    // Calculate required DCA amount to reach target entry
+    const originalContractQty = (size * lev) / entry;
+    const totalContractsNeeded = (size * lev) / target;
+    const additionalContractsNeeded =
+      totalContractsNeeded - originalContractQty;
+    const dcaAmountNeeded = (additionalContractsNeeded * current) / lev;
+
+    // Calculate total position after DCA
+    const totalInvestment = size + dcaAmountNeeded;
+    const totalPositionSize = totalInvestment * lev;
+
+    setDcaResults((prev) => ({
+      ...prev,
+      targetDCA: {
+        dcaAmountNeeded: dcaAmountNeeded.toFixed(2),
+        newTotalInvestment: totalInvestment.toFixed(2),
+        newPositionSize: totalPositionSize.toFixed(2),
+        targetEntry: target.toFixed(2),
+        percentageIncrease: ((dcaAmountNeeded / size) * 100).toFixed(2),
+      },
+    }));
   };
 
   const calculatePositionMetrics = () => {
@@ -269,6 +366,101 @@ export default function Home() {
             </div>
           </div>
 
+          <div className="border-t border-gray-200 mt-8 pt-8">
+            <h2 className="text-2xl font-bold mb-6 text-gray-800">
+              DCA Calculator
+            </h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+              <div className="space-y-2">
+                <label className="block text-sm font-semibold text-gray-800">
+                  Current Price
+                </label>
+                <input
+                  type="text"
+                  name="currentPrice"
+                  value={formData.currentPrice}
+                  onChange={handleInputChange}
+                  className={`w-full p-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all outline-none ${
+                    errors.currentPrice ? "border-red-500" : ""
+                  }`}
+                  placeholder="Enter current price..."
+                />
+                {errors.currentPrice && (
+                  <p className="text-red-500 text-sm mt-1">
+                    {errors.currentPrice}
+                  </p>
+                )}
+              </div>
+
+              <div className="space-y-2">
+                <label className="block text-sm font-semibold text-gray-800">
+                  DCA Amount (USD)
+                </label>
+                <input
+                  type="text"
+                  name="dcaAmount"
+                  value={formData.dcaAmount}
+                  onChange={handleInputChange}
+                  className={`w-full p-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all outline-none ${
+                    errors.dcaAmount ? "border-red-500" : ""
+                  }`}
+                  placeholder="Enter DCA amount..."
+                />
+                {errors.dcaAmount && (
+                  <p className="text-red-500 text-sm mt-1">
+                    {errors.dcaAmount}
+                  </p>
+                )}
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={calculateDCA}
+              className="w-full mt-6 bg-gradient-to-r from-green-600 to-emerald-600 text-white py-4 px-6 rounded-xl text-lg font-semibold hover:from-green-700 hover:to-emerald-700 transition-all shadow-md hover:shadow-lg"
+            >
+              Calculate DCA
+            </button>
+          </div>
+
+          <div className="border-t border-gray-200 mt-8 pt-8">
+            <h2 className="text-2xl font-bold mb-6 text-gray-800">
+              Target Entry Calculator
+            </h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+              <div className="space-y-2">
+                <label className="block text-sm font-semibold text-gray-800">
+                  Desired Average Entry Price
+                </label>
+                <input
+                  type="text"
+                  name="targetEntry"
+                  value={formData.targetEntry}
+                  onChange={handleInputChange}
+                  className={`w-full p-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all outline-none ${
+                    errors.targetEntry ? "border-red-500" : ""
+                  }`}
+                  placeholder="Enter target entry price..."
+                />
+                {errors.targetEntry && (
+                  <p className="text-red-500 text-sm mt-1">
+                    {errors.targetEntry}
+                  </p>
+                )}
+              </div>
+
+              <div className="flex items-end">
+                <button
+                  type="button"
+                  onClick={calculateTargetDCA}
+                  className="w-full bg-gradient-to-r from-purple-600 to-indigo-600 text-white py-4 px-6 rounded-xl text-lg font-semibold hover:from-purple-700 hover:to-indigo-700 transition-all shadow-md hover:shadow-lg"
+                >
+                  Calculate Required DCA
+                </button>
+              </div>
+            </div>
+          </div>
+
           <div className="flex gap-4 mt-8">
             <button
               type="submit"
@@ -357,6 +549,147 @@ export default function Home() {
                   {results.isGoodRiskReward
                     ? "✅ Good risk/reward ratio - This trade has favorable risk management"
                     : "⚠️ Consider adjusting your take profit or stop loss to improve the risk/reward ratio"}
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {dcaResults && (
+          <div className="bg-white rounded-2xl shadow-xl p-8 mt-8">
+            <h2 className="text-2xl font-bold mb-6 text-gray-800">
+              DCA Results
+            </h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="bg-gray-50 p-6 rounded-xl">
+                <p className="text-sm font-semibold text-gray-600 mb-1">
+                  Real Money Invested
+                </p>
+                <p className="text-2xl font-bold text-gray-900">
+                  ${dcaResults.totalInvestment}
+                </p>
+                <div className="mt-2 text-sm text-gray-600">
+                  <p>Initial: ${dcaResults.originalInvestment}</p>
+                  <p>DCA: ${dcaResults.dcaInvestment}</p>
+                </div>
+              </div>
+
+              <div className="bg-gray-50 p-6 rounded-xl">
+                <p className="text-sm font-semibold text-gray-600 mb-1">
+                  Current Value (Real Money)
+                </p>
+                <p className="text-2xl font-bold text-gray-900">
+                  ${dcaResults.currentValue}
+                </p>
+                <p className="mt-2 text-sm text-gray-600">
+                  With {dcaResults.totalContractQty} contracts
+                </p>
+              </div>
+
+              <div
+                className={`p-6 rounded-xl ${
+                  parseFloat(dcaResults.unrealizedPnL) >= 0
+                    ? "bg-green-50"
+                    : "bg-red-50"
+                }`}
+              >
+                <p className="text-sm font-semibold text-gray-600 mb-1">
+                  Real Money P/L
+                </p>
+                <p
+                  className={`text-2xl font-bold ${
+                    parseFloat(dcaResults.unrealizedPnL) >= 0
+                      ? "text-green-600"
+                      : "text-red-600"
+                  }`}
+                >
+                  ${dcaResults.unrealizedPnL}
+                </p>
+                <p className="mt-2 text-sm text-gray-600">
+                  ROI: {dcaResults.roiPercentage}%
+                </p>
+              </div>
+
+              <div className="bg-blue-50 p-6 rounded-xl">
+                <p className="text-sm font-semibold text-gray-600 mb-1">
+                  New Average Entry
+                </p>
+                <p className="text-2xl font-bold text-blue-600">
+                  ${dcaResults.newAverageEntry}
+                </p>
+                <p className="mt-2 text-sm text-gray-600">
+                  Need {dcaResults.breakevenPriceChange}% to breakeven
+                </p>
+              </div>
+
+              <div className="bg-indigo-50 p-6 rounded-xl col-span-2">
+                <p className="text-sm font-semibold text-gray-600 mb-1">
+                  Position Summary
+                </p>
+                <div className="grid grid-cols-2 gap-4 mt-2">
+                  <div>
+                    <p className="text-sm text-gray-600">Real Money Total</p>
+                    <p className="text-xl font-bold text-gray-900">
+                      ${dcaResults.totalInvestment}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-gray-600">
+                      Leveraged Position Size
+                    </p>
+                    <p className="text-xl font-bold text-gray-900">
+                      ${dcaResults.leveragedPosition}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {dcaResults?.targetDCA && (
+          <div className="bg-white rounded-2xl shadow-xl p-8 mt-8">
+            <h2 className="text-2xl font-bold mb-6 text-gray-800">
+              Target Entry Results
+            </h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="bg-purple-50 p-6 rounded-xl">
+                <p className="text-sm font-semibold text-gray-600 mb-1">
+                  Required DCA Amount
+                </p>
+                <p className="text-2xl font-bold text-purple-600">
+                  ${dcaResults.targetDCA.dcaAmountNeeded}
+                </p>
+                <p className="mt-2 text-sm text-gray-600">
+                  {dcaResults.targetDCA.percentageIncrease}% of original
+                  investment
+                </p>
+              </div>
+
+              <div className="bg-gray-50 p-6 rounded-xl">
+                <p className="text-sm font-semibold text-gray-600 mb-1">
+                  Target Average Entry
+                </p>
+                <p className="text-2xl font-bold text-gray-900">
+                  ${dcaResults.targetDCA.targetEntry}
+                </p>
+              </div>
+
+              <div className="bg-indigo-50 p-6 rounded-xl">
+                <p className="text-sm font-semibold text-gray-600 mb-1">
+                  New Total Investment
+                </p>
+                <p className="text-2xl font-bold text-indigo-600">
+                  ${dcaResults.targetDCA.newTotalInvestment}
+                </p>
+              </div>
+
+              <div className="bg-blue-50 p-6 rounded-xl">
+                <p className="text-sm font-semibold text-gray-600 mb-1">
+                  New Position Size
+                </p>
+                <p className="text-2xl font-bold text-blue-600">
+                  ${dcaResults.targetDCA.newPositionSize}
                 </p>
               </div>
             </div>

@@ -15,10 +15,12 @@ export const metadata = {
 export default function RootLayout({ children }) {
   return (
     <html lang="en">
-      <body className={`${beVietnamPro.variable} antialiased`}>{children}</body>
-      <footer className="text-center text-md font-bold text-white py-4">
-        Made by CZ with ❤️
-      </footer>
+      <body className={`${beVietnamPro.variable} antialiased`}>
+        {children}
+        <footer className="text-center text-md font-bold text-white py-4">
+          Made by CZ with ❤️
+        </footer>
+      </body>
     </html>
   );
 }
