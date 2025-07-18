@@ -254,90 +254,265 @@ export default function Home() {
       dcaTrianglePrice,
       dcaTriangleTarget,
       dcaTriangleScenario,
+      orderType,
     } = formData;
+
+    // Reset errors at the start of calculation
+    setErrors({
+      entryPrice: "",
+      positionSize: "",
+      stopLoss: "",
+      takeProfit: "",
+      dcaTriangleAmount: "",
+      dcaTrianglePrice: "",
+      dcaTriangleTarget: "",
+    });
 
     // Convert inputs to numbers
     const entry = parseFloat(entryPrice);
     const lev = parseFloat(leverage);
     const size = parseFloat(positionSize);
 
-    switch (dcaTriangleScenario) {
-      case "1": {
-        // Known: Initial position, DCA amount, desired entry
-        // Calculate: Required DCA price
-        const dcaAmount = parseFloat(dcaTriangleAmount);
-        const targetEntry = parseFloat(dcaTriangleTarget);
-
-        const originalContractQty = (size * lev) / entry;
-        const totalCost = (size + dcaAmount) * lev;
-        const totalContractsNeeded = totalCost / targetEntry;
-        const additionalContractsNeeded =
-          totalContractsNeeded - originalContractQty;
-        const requiredDCAPrice = (dcaAmount * lev) / additionalContractsNeeded;
-
-        setDcaResults({
-          ...dcaResults,
-          triangle: {
-            scenario: 1,
-            requiredPrice: requiredDCAPrice.toFixed(2),
-            dcaAmount: dcaAmount.toFixed(2),
-            targetEntry: targetEntry.toFixed(2),
-            totalInvestment: (size + dcaAmount).toFixed(2),
-            leveragedPosition: totalCost.toFixed(2),
-          },
-        });
-        break;
+    const validateTargetEntry = (target, current, originalEntry, isLong) => {
+      if (isLong) {
+        // For LONG positions
+        if (target <= current) {
+          throw {
+            field: "dcaTriangleTarget",
+            message:
+              "Target entry must be higher than current price for LONG positions",
+          };
+        }
+        if (target >= originalEntry) {
+          throw {
+            field: "dcaTriangleTarget",
+            message:
+              "Target entry must be lower than original entry for LONG positions",
+          };
+        }
+      } else {
+        // For SHORT positions
+        if (target >= current) {
+          throw {
+            field: "dcaTriangleTarget",
+            message:
+              "Target entry must be lower than current price for SHORT positions",
+          };
+        }
+        if (target <= originalEntry) {
+          throw {
+            field: "dcaTriangleTarget",
+            message:
+              "Target entry must be higher than original entry for SHORT positions",
+          };
+        }
       }
-      case "2": {
-        // Known: Initial position, current price, desired entry
-        // Calculate: Required DCA amount
-        const currentPrice = parseFloat(dcaTrianglePrice);
-        const targetEntry = parseFloat(dcaTriangleTarget);
+    };
 
-        const originalContractQty = (size * lev) / entry;
-        const targetTotalContracts = (size * lev) / targetEntry;
-        const additionalContractsNeeded =
-          targetTotalContracts - originalContractQty;
-        const requiredDCAAmount =
-          (additionalContractsNeeded * currentPrice) / lev;
-
-        setDcaResults({
-          ...dcaResults,
-          triangle: {
-            scenario: 2,
-            currentPrice: currentPrice.toFixed(2),
-            requiredAmount: requiredDCAAmount.toFixed(2),
-            targetEntry: targetEntry.toFixed(2),
-            totalInvestment: (size + requiredDCAAmount).toFixed(2),
-            leveragedPosition: ((size + requiredDCAAmount) * lev).toFixed(2),
-          },
-        });
-        break;
+    const validateCurrentPrice = (current, originalEntry, isLong) => {
+      if (isLong) {
+        // For LONG positions
+        if (current >= originalEntry) {
+          throw {
+            field: "dcaTrianglePrice",
+            message:
+              "Current price must be lower than entry price for LONG positions",
+          };
+        }
+      } else {
+        // For SHORT positions
+        if (current <= originalEntry) {
+          throw {
+            field: "dcaTrianglePrice",
+            message:
+              "Current price must be higher than entry price for SHORT positions",
+          };
+        }
       }
-      case "3": {
-        // Known: Initial position, current price, DCA amount
-        // Calculate: Resulting average entry
-        const currentPrice = parseFloat(dcaTrianglePrice);
-        const dcaAmount = parseFloat(dcaTriangleAmount);
+    };
 
-        const originalContractQty = (size * lev) / entry;
-        const dcaContractQty = (dcaAmount * lev) / currentPrice;
-        const totalContractQty = originalContractQty + dcaContractQty;
-        const totalCost = (size + dcaAmount) * lev;
-        const resultingEntry = totalCost / totalContractQty;
+    const isLong = orderType === "long";
 
-        setDcaResults({
-          ...dcaResults,
-          triangle: {
-            scenario: 3,
-            currentPrice: currentPrice.toFixed(2),
-            dcaAmount: dcaAmount.toFixed(2),
-            resultingEntry: resultingEntry.toFixed(2),
-            totalInvestment: (size + dcaAmount).toFixed(2),
-            leveragedPosition: totalCost.toFixed(2),
-          },
-        });
-        break;
+    try {
+      switch (dcaTriangleScenario) {
+        case "1": {
+          // Known: Initial position, DCA amount, desired entry
+          const dcaAmount = parseFloat(dcaTriangleAmount);
+          if (isNaN(dcaAmount) || dcaAmount <= 0) {
+            throw {
+              field: "dcaTriangleAmount",
+              message: "Please enter a valid DCA amount",
+            };
+          }
+
+          const targetEntry = parseFloat(dcaTriangleTarget);
+          if (isNaN(targetEntry) || targetEntry <= 0) {
+            throw {
+              field: "dcaTriangleTarget",
+              message: "Please enter a valid target entry price",
+            };
+          }
+
+          // Calculate weighted average
+          const initialValue = size * lev;
+          const dcaValue = dcaAmount * lev;
+          const totalValue = initialValue + dcaValue;
+
+          // Calculate required DCA price using weighted average formula
+          const requiredDCAPrice =
+            (targetEntry * totalValue - entry * initialValue) / dcaValue;
+
+          // Validate the required DCA price
+          if (isNaN(requiredDCAPrice) || requiredDCAPrice <= 0) {
+            throw {
+              field: "dcaTriangleAmount",
+              message: "Invalid DCA amount for this target entry",
+            };
+          }
+
+          validateTargetEntry(targetEntry, requiredDCAPrice, entry, isLong);
+
+          setDcaResults({
+            ...dcaResults,
+            triangle: {
+              scenario: 1,
+              requiredPrice: requiredDCAPrice.toFixed(2),
+              dcaAmount: dcaAmount.toFixed(2),
+              targetEntry: targetEntry.toFixed(2),
+              totalInvestment: (size + dcaAmount).toFixed(2),
+              leveragedPosition: totalValue.toFixed(2),
+              orderType: isLong ? "LONG" : "SHORT",
+              message: `✅ DCA at price ${requiredDCAPrice.toFixed(
+                2
+              )} to reach target entry ${targetEntry}`,
+            },
+          });
+          break;
+        }
+        case "2": {
+          // Known: Initial position, current price, desired entry
+          const currentPrice = parseFloat(dcaTrianglePrice);
+          if (isNaN(currentPrice) || currentPrice <= 0) {
+            throw {
+              field: "dcaTrianglePrice",
+              message: "Please enter a valid current price",
+            };
+          }
+
+          const targetEntry = parseFloat(dcaTriangleTarget);
+          if (isNaN(targetEntry) || targetEntry <= 0) {
+            throw {
+              field: "dcaTriangleTarget",
+              message: "Please enter a valid target entry price",
+            };
+          }
+
+          // Validate prices
+          validateCurrentPrice(currentPrice, entry, isLong);
+          validateTargetEntry(targetEntry, currentPrice, entry, isLong);
+
+          // Calculate required DCA amount using weighted average formula
+          const initialValue = size * lev;
+          const w2 = Math.abs(
+            (initialValue * (entry - targetEntry)) /
+              (targetEntry - currentPrice)
+          );
+          const requiredDCAAmount = w2 / lev;
+
+          if (isNaN(requiredDCAAmount) || requiredDCAAmount <= 0) {
+            throw {
+              field: "dcaTriangleTarget",
+              message: "Cannot calculate DCA amount for these prices",
+            };
+          }
+
+          setDcaResults({
+            ...dcaResults,
+            triangle: {
+              scenario: 2,
+              currentPrice: currentPrice.toFixed(2),
+              requiredAmount: requiredDCAAmount.toFixed(2),
+              targetEntry: targetEntry.toFixed(2),
+              totalInvestment: (size + requiredDCAAmount).toFixed(2),
+              leveragedPosition: (initialValue + w2).toFixed(2),
+              orderType: isLong ? "LONG" : "SHORT",
+              message: `✅ DCA with ${requiredDCAAmount.toFixed(
+                2
+              )} USD at price ${currentPrice} to reach target entry ${targetEntry}`,
+            },
+          });
+          break;
+        }
+        case "3": {
+          // Known: Initial position, current price, DCA amount
+          const currentPrice = parseFloat(dcaTrianglePrice);
+          if (isNaN(currentPrice) || currentPrice <= 0) {
+            throw {
+              field: "dcaTrianglePrice",
+              message: "Please enter a valid current price",
+            };
+          }
+
+          const dcaAmount = parseFloat(dcaTriangleAmount);
+          if (isNaN(dcaAmount) || dcaAmount <= 0) {
+            throw {
+              field: "dcaTriangleAmount",
+              message: "Please enter a valid DCA amount",
+            };
+          }
+
+          // Validate current price
+          validateCurrentPrice(currentPrice, entry, isLong);
+
+          // Calculate weighted average entry
+          const initialValue = size * lev;
+          const dcaValue = dcaAmount * lev;
+          const totalValue = initialValue + dcaValue;
+
+          // Weighted average formula
+          const resultingEntry =
+            (entry * initialValue + currentPrice * dcaValue) / totalValue;
+
+          if (isNaN(resultingEntry) || resultingEntry <= 0) {
+            throw {
+              field: "dcaTriangleAmount",
+              message: "Cannot calculate resulting entry with these values",
+            };
+          }
+
+          // Validate the resulting entry
+          validateTargetEntry(resultingEntry, currentPrice, entry, isLong);
+
+          setDcaResults({
+            ...dcaResults,
+            triangle: {
+              scenario: 3,
+              currentPrice: currentPrice.toFixed(2),
+              dcaAmount: dcaAmount.toFixed(2),
+              resultingEntry: resultingEntry.toFixed(2),
+              totalInvestment: (size + dcaAmount).toFixed(2),
+              leveragedPosition: totalValue.toFixed(2),
+              orderType: isLong ? "LONG" : "SHORT",
+              message: `✅ DCA will result in new entry price of ${resultingEntry.toFixed(
+                2
+              )}`,
+            },
+          });
+          break;
+        }
+      }
+    } catch (error) {
+      if (error.field) {
+        setErrors((prev) => ({
+          ...prev,
+          [error.field]: error.message,
+        }));
+      } else {
+        // Fallback for unexpected errors
+        setErrors((prev) => ({
+          ...prev,
+          dcaTriangleTarget: "An unexpected error occurred",
+        }));
       }
     }
   };
@@ -747,6 +922,20 @@ export default function Home() {
             <h2 className="text-2xl font-bold mb-6 text-gray-800">
               DCA Triangle Results
             </h2>
+
+            {/* Add message banner */}
+            {dcaResults.triangle.message && (
+              <div
+                className={`mb-6 p-4 rounded-lg ${
+                  dcaResults.triangle.message.startsWith("✅")
+                    ? "bg-green-50 text-green-700"
+                    : "bg-yellow-50 text-yellow-700"
+                }`}
+              >
+                {dcaResults.triangle.message}
+              </div>
+            )}
+
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               {dcaResults.triangle.scenario === 1 && (
                 <>
