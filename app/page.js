@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 
-// Create leverage array with common intervals
+// Constants
 const leverageArr = [
   1, 2, 3, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 60, 70, 75, 80, 90, 100, 125,
   150, 175, 200, 225, 250, 275, 300, 325, 350, 375, 400, 425, 450, 475, 500,
@@ -15,43 +15,91 @@ const initialFormState = {
   orderType: "long",
   stopLoss: "",
   takeProfit: "",
-  // Add DCA fields
   currentPrice: "",
   dcaAmount: "",
-  targetEntry: "", // Add new field
+  targetEntry: "",
+  dcaTriangleAmount: "",
+  dcaTrianglePrice: "",
+  dcaTriangleTarget: "",
+  dcaTriangleScenario: "1", // 1, 2, or 3
 };
+
+const initialErrorState = {
+  entryPrice: "",
+  positionSize: "",
+  stopLoss: "",
+  takeProfit: "",
+  currentPrice: "",
+  dcaAmount: "",
+  targetEntry: "",
+  dcaTriangleAmount: "",
+  dcaTrianglePrice: "",
+  dcaTriangleTarget: "",
+};
+
+// Input Field Component
+const InputField = ({
+  label,
+  name,
+  value,
+  onChange,
+  error,
+  placeholder,
+  tooltip,
+}) => (
+  <div className="space-y-2">
+    <div className="flex items-center gap-2">
+      <label className="block text-sm font-semibold text-gray-800">
+        {label}
+      </label>
+      {tooltip && (
+        <div className="group relative">
+          <span className="cursor-help text-gray-400 hover:text-gray-600">
+            ⓘ
+          </span>
+          <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden group-hover:block w-48 p-2 bg-gray-900 text-white text-xs rounded shadow-lg">
+            {tooltip}
+          </div>
+        </div>
+      )}
+    </div>
+    <input
+      type="text"
+      name={name}
+      value={value}
+      onChange={onChange}
+      className={`w-full p-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all outline-none ${
+        error ? "border-red-500" : ""
+      }`}
+      placeholder={placeholder}
+    />
+    {error && <p className="text-red-500 text-sm mt-1">{error}</p>}
+  </div>
+);
+
+// Results Card Component
+const ResultCard = ({
+  title,
+  value,
+  subtitle,
+  bgColor = "bg-gray-50",
+  textColor = "text-gray-900",
+}) => (
+  <div className={`${bgColor} p-6 rounded-xl`}>
+    <p className="text-sm font-semibold text-gray-600 mb-1">{title}</p>
+    <p className={`text-2xl font-bold ${textColor}`}>{value}</p>
+    {subtitle && <p className="mt-2 text-sm text-gray-600">{subtitle}</p>}
+  </div>
+);
 
 export default function Home() {
   const [formData, setFormData] = useState(initialFormState);
-
-  const [errors, setErrors] = useState({
-    entryPrice: "",
-    positionSize: "",
-    stopLoss: "",
-    takeProfit: "",
-    currentPrice: "",
-    dcaAmount: "",
-    targetEntry: "",
-  });
-
+  const [errors, setErrors] = useState(initialErrorState);
   const [results, setResults] = useState(null);
   const [dcaResults, setDcaResults] = useState(null);
+  const [activeTab, setActiveTab] = useState("position"); // 'position', 'dca', or 'target'
 
-  const handleClearForm = () => {
-    setFormData(initialFormState);
-    setErrors({
-      entryPrice: "",
-      positionSize: "",
-      stopLoss: "",
-      takeProfit: "",
-      currentPrice: "",
-      dcaAmount: "",
-      targetEntry: "",
-    });
-    setResults(null);
-    setDcaResults(null);
-  };
-
+  // Validation function
   const validateNumber = (value, fieldName) => {
     if (value === "") {
       return `${fieldName} is required`;
@@ -197,6 +245,103 @@ export default function Home() {
     });
   };
 
+  const calculateDCATriangle = () => {
+    const {
+      entryPrice,
+      leverage,
+      positionSize,
+      dcaTriangleAmount,
+      dcaTrianglePrice,
+      dcaTriangleTarget,
+      dcaTriangleScenario,
+    } = formData;
+
+    // Convert inputs to numbers
+    const entry = parseFloat(entryPrice);
+    const lev = parseFloat(leverage);
+    const size = parseFloat(positionSize);
+
+    switch (dcaTriangleScenario) {
+      case "1": {
+        // Known: Initial position, DCA amount, desired entry
+        // Calculate: Required DCA price
+        const dcaAmount = parseFloat(dcaTriangleAmount);
+        const targetEntry = parseFloat(dcaTriangleTarget);
+
+        const originalContractQty = (size * lev) / entry;
+        const totalCost = (size + dcaAmount) * lev;
+        const totalContractsNeeded = totalCost / targetEntry;
+        const additionalContractsNeeded =
+          totalContractsNeeded - originalContractQty;
+        const requiredDCAPrice = (dcaAmount * lev) / additionalContractsNeeded;
+
+        setDcaResults({
+          ...dcaResults,
+          triangle: {
+            scenario: 1,
+            requiredPrice: requiredDCAPrice.toFixed(2),
+            dcaAmount: dcaAmount.toFixed(2),
+            targetEntry: targetEntry.toFixed(2),
+            totalInvestment: (size + dcaAmount).toFixed(2),
+            leveragedPosition: totalCost.toFixed(2),
+          },
+        });
+        break;
+      }
+      case "2": {
+        // Known: Initial position, current price, desired entry
+        // Calculate: Required DCA amount
+        const currentPrice = parseFloat(dcaTrianglePrice);
+        const targetEntry = parseFloat(dcaTriangleTarget);
+
+        const originalContractQty = (size * lev) / entry;
+        const targetTotalContracts = (size * lev) / targetEntry;
+        const additionalContractsNeeded =
+          targetTotalContracts - originalContractQty;
+        const requiredDCAAmount =
+          (additionalContractsNeeded * currentPrice) / lev;
+
+        setDcaResults({
+          ...dcaResults,
+          triangle: {
+            scenario: 2,
+            currentPrice: currentPrice.toFixed(2),
+            requiredAmount: requiredDCAAmount.toFixed(2),
+            targetEntry: targetEntry.toFixed(2),
+            totalInvestment: (size + requiredDCAAmount).toFixed(2),
+            leveragedPosition: ((size + requiredDCAAmount) * lev).toFixed(2),
+          },
+        });
+        break;
+      }
+      case "3": {
+        // Known: Initial position, current price, DCA amount
+        // Calculate: Resulting average entry
+        const currentPrice = parseFloat(dcaTrianglePrice);
+        const dcaAmount = parseFloat(dcaTriangleAmount);
+
+        const originalContractQty = (size * lev) / entry;
+        const dcaContractQty = (dcaAmount * lev) / currentPrice;
+        const totalContractQty = originalContractQty + dcaContractQty;
+        const totalCost = (size + dcaAmount) * lev;
+        const resultingEntry = totalCost / totalContractQty;
+
+        setDcaResults({
+          ...dcaResults,
+          triangle: {
+            scenario: 3,
+            currentPrice: currentPrice.toFixed(2),
+            dcaAmount: dcaAmount.toFixed(2),
+            resultingEntry: resultingEntry.toFixed(2),
+            totalInvestment: (size + dcaAmount).toFixed(2),
+            leveragedPosition: totalCost.toFixed(2),
+          },
+        });
+        break;
+      }
+    }
+  };
+
   const handleInputChange = (e) => {
     const { name, value } = e.target;
     setFormData((prev) => ({
@@ -204,7 +349,6 @@ export default function Home() {
       [name]: value,
     }));
 
-    // Validate number fields
     if (name !== "orderType" && name !== "leverage") {
       const error = validateNumber(
         value,
@@ -215,6 +359,13 @@ export default function Home() {
         [name]: error,
       }));
     }
+  };
+
+  const handleClearForm = () => {
+    setFormData(initialFormState);
+    setErrors(initialErrorState);
+    setResults(null);
+    setDcaResults(null);
   };
 
   const handleSubmit = (e) => {
@@ -241,232 +392,344 @@ export default function Home() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-50 py-12 px-4 sm:px-6 lg:px-8">
       <main className="max-w-4xl mx-auto">
-        <h1 className="text-4xl font-bold text-center mb-12 text-gray-800">
+        <h1 className="text-4xl font-bold text-center mb-8 text-gray-800">
           Futures Trading Calculator
         </h1>
 
-        <form
-          onSubmit={handleSubmit}
-          className="bg-white rounded-2xl shadow-xl p-8 mb-8"
-        >
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-            <div className="space-y-2">
-              <label className="block text-sm font-semibold text-gray-800">
-                Entry Price
-              </label>
-              <input
-                type="text"
+        {/* Navigation Tabs */}
+        <div className="flex gap-2 mb-8 bg-white p-1 rounded-xl shadow-sm">
+          {[
+            // { id: "position", label: "📊 Position Calculator" },
+            // { id: "dca", label: "💰 DCA Calculator" },
+            // { id: "target", label: "🎯 Target Entry" },
+            { id: "triangle", label: "DCA Triangle Calculator" },
+          ].map((tab) => (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              className={`flex-1 py-3 px-4 rounded-lg text-sm font-medium transition-all ${
+                activeTab === tab.id
+                  ? "bg-blue-500 text-white shadow-sm"
+                  : "text-gray-600 hover:bg-gray-50"
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+
+        <form className="bg-white rounded-2xl shadow-xl p-8 mb-8">
+          {/* Initial Position Section - Always visible */}
+          <div className="mb-8">
+            <h2 className="text-2xl font-bold mb-6 text-gray-800">
+              Initial Position
+            </h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+              <InputField
+                label="Entry Price"
                 name="entryPrice"
                 value={formData.entryPrice}
                 onChange={handleInputChange}
-                className={`w-full p-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all outline-none ${
-                  errors.entryPrice ? "border-red-500" : ""
-                }`}
-                required
+                error={errors.entryPrice}
                 placeholder="Enter price..."
+                tooltip="The price at which you entered your position"
               />
-              {errors.entryPrice && (
-                <p className="text-red-500 text-sm mt-1">{errors.entryPrice}</p>
-              )}
-            </div>
 
-            <div className="space-y-2">
-              <label className="block text-sm font-semibold text-gray-800">
-                Leverage
-              </label>
-              <select
-                name="leverage"
-                value={formData.leverage}
-                onChange={handleInputChange}
-                className="w-full p-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all outline-none appearance-none bg-white"
-              >
-                {leverageArr.map((lev) => (
-                  <option key={lev} value={lev}>
-                    {lev}x
-                  </option>
-                ))}
-              </select>
-            </div>
+              <div className="space-y-2">
+                <label className="block text-sm font-semibold text-gray-800">
+                  Leverage
+                </label>
+                <select
+                  name="leverage"
+                  value={formData.leverage}
+                  onChange={handleInputChange}
+                  className="w-full p-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all outline-none appearance-none bg-white"
+                >
+                  {leverageArr.map((lev) => (
+                    <option key={lev} value={lev}>
+                      {lev}x
+                    </option>
+                  ))}
+                </select>
+              </div>
 
-            <div className="space-y-2">
-              <label className="block text-sm font-semibold text-black">
-                Position Size (USD)
-              </label>
-              <input
-                type="text"
+              <InputField
+                label="Position Size (USD)"
                 name="positionSize"
                 value={formData.positionSize}
                 onChange={handleInputChange}
-                className={`w-full p-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all outline-none ${
-                  errors.positionSize ? "border-red-500" : ""
-                }`}
-                required
+                error={errors.positionSize}
                 placeholder="Enter size..."
+                tooltip="Your initial investment amount in USD"
               />
-              {errors.positionSize && (
-                <p className="text-red-500 text-sm mt-1">
-                  {errors.positionSize}
-                </p>
-              )}
-            </div>
 
-            <div className="space-y-2">
-              <label className="block text-sm font-semibold text-gray-800">
-                Order Type
-              </label>
-              <select
-                name="orderType"
-                value={formData.orderType}
-                onChange={handleInputChange}
-                className="w-full p-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all outline-none appearance-none bg-white"
-              >
-                <option value="long">Long</option>
-                <option value="short">Short</option>
-              </select>
-            </div>
+              <div className="space-y-2">
+                <label className="block text-sm font-semibold text-gray-800">
+                  Order Type
+                </label>
+                <select
+                  name="orderType"
+                  value={formData.orderType}
+                  onChange={handleInputChange}
+                  className="w-full p-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all outline-none appearance-none bg-white"
+                >
+                  <option value="long">Long</option>
+                  <option value="short">Short</option>
+                </select>
+              </div>
 
-            <div className="space-y-2">
-              <label className="block text-sm font-semibold text-gray-800">
-                Stop Loss Price
-              </label>
-              <input
-                type="text"
+              <InputField
+                label="Stop Loss Price"
                 name="stopLoss"
                 value={formData.stopLoss}
                 onChange={handleInputChange}
-                className={`w-full p-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all outline-none ${
-                  errors.stopLoss ? "border-red-500" : ""
-                }`}
-                required
+                error={errors.stopLoss}
                 placeholder="Enter stop loss..."
+                tooltip="Price at which your position will be closed to limit losses"
               />
-              {errors.stopLoss && (
-                <p className="text-red-500 text-sm mt-1">{errors.stopLoss}</p>
-              )}
-            </div>
 
-            <div className="space-y-2">
-              <label className="block text-sm font-semibold text-gray-800">
-                Take Profit Price
-              </label>
-              <input
-                type="text"
+              <InputField
+                label="Take Profit Price"
                 name="takeProfit"
                 value={formData.takeProfit}
                 onChange={handleInputChange}
-                className={`w-full p-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all outline-none ${
-                  errors.takeProfit ? "border-red-500" : ""
-                }`}
-                required
+                error={errors.takeProfit}
                 placeholder="Enter take profit..."
+                tooltip="Price at which your position will be closed to secure profits"
               />
-              {errors.takeProfit && (
-                <p className="text-red-500 text-sm mt-1">{errors.takeProfit}</p>
-              )}
             </div>
           </div>
 
-          <div className="border-t border-gray-200 mt-8 pt-8">
-            <h2 className="text-2xl font-bold mb-6 text-gray-800">
-              DCA Calculator
-            </h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-              <div className="space-y-2">
-                <label className="block text-sm font-semibold text-gray-800">
-                  Current Price
-                </label>
-                <input
-                  type="text"
+          {/* DCA Section */}
+          {activeTab === "dca" && (
+            <div className="border-t border-gray-200 pt-8">
+              <h2 className="text-2xl font-bold mb-6 text-gray-800">
+                DCA Details
+              </h2>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                <InputField
+                  label="Current Price"
                   name="currentPrice"
                   value={formData.currentPrice}
                   onChange={handleInputChange}
-                  className={`w-full p-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all outline-none ${
-                    errors.currentPrice ? "border-red-500" : ""
-                  }`}
+                  error={errors.currentPrice}
                   placeholder="Enter current price..."
+                  tooltip="The current market price"
                 />
-                {errors.currentPrice && (
-                  <p className="text-red-500 text-sm mt-1">
-                    {errors.currentPrice}
-                  </p>
-                )}
-              </div>
 
-              <div className="space-y-2">
-                <label className="block text-sm font-semibold text-gray-800">
-                  DCA Amount (USD)
-                </label>
-                <input
-                  type="text"
+                <InputField
+                  label="DCA Amount (USD)"
                   name="dcaAmount"
                   value={formData.dcaAmount}
                   onChange={handleInputChange}
-                  className={`w-full p-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all outline-none ${
-                    errors.dcaAmount ? "border-red-500" : ""
-                  }`}
+                  error={errors.dcaAmount}
                   placeholder="Enter DCA amount..."
+                  tooltip="Additional amount you want to invest"
                 />
-                {errors.dcaAmount && (
-                  <p className="text-red-500 text-sm mt-1">
-                    {errors.dcaAmount}
-                  </p>
-                )}
               </div>
             </div>
+          )}
 
-            <button
-              type="button"
-              onClick={calculateDCA}
-              className="w-full mt-6 bg-gradient-to-r from-green-600 to-emerald-600 text-white py-4 px-6 rounded-xl text-lg font-semibold hover:from-green-700 hover:to-emerald-700 transition-all shadow-md hover:shadow-lg"
-            >
-              Calculate DCA
-            </button>
-          </div>
+          {/* Target Entry Section */}
+          {activeTab === "target" && (
+            <div className="border-t border-gray-200 pt-8">
+              <h2 className="text-2xl font-bold mb-6 text-gray-800">
+                Target Entry
+              </h2>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                <InputField
+                  label="Current Price"
+                  name="currentPrice"
+                  value={formData.currentPrice}
+                  onChange={handleInputChange}
+                  error={errors.currentPrice}
+                  placeholder="Enter current price..."
+                  tooltip="The current market price"
+                />
 
-          <div className="border-t border-gray-200 mt-8 pt-8">
-            <h2 className="text-2xl font-bold mb-6 text-gray-800">
-              Target Entry Calculator
-            </h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-              <div className="space-y-2">
-                <label className="block text-sm font-semibold text-gray-800">
-                  Desired Average Entry Price
-                </label>
-                <input
-                  type="text"
+                <InputField
+                  label="Desired Average Entry"
                   name="targetEntry"
                   value={formData.targetEntry}
                   onChange={handleInputChange}
-                  className={`w-full p-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all outline-none ${
-                    errors.targetEntry ? "border-red-500" : ""
-                  }`}
-                  placeholder="Enter target entry price..."
+                  error={errors.targetEntry}
+                  placeholder="Enter target entry..."
+                  tooltip="Your desired new average entry price"
                 />
-                {errors.targetEntry && (
-                  <p className="text-red-500 text-sm mt-1">
-                    {errors.targetEntry}
-                  </p>
-                )}
-              </div>
-
-              <div className="flex items-end">
-                <button
-                  type="button"
-                  onClick={calculateTargetDCA}
-                  className="w-full bg-gradient-to-r from-purple-600 to-indigo-600 text-white py-4 px-6 rounded-xl text-lg font-semibold hover:from-purple-700 hover:to-indigo-700 transition-all shadow-md hover:shadow-lg"
-                >
-                  Calculate Required DCA
-                </button>
               </div>
             </div>
-          </div>
+          )}
 
+          {/* DCA Triangle Section */}
+          {activeTab === "triangle" && (
+            <div className="space-y-8">
+              <div className="flex gap-4">
+                <button
+                  type="button"
+                  onClick={() =>
+                    setFormData((prev) => ({
+                      ...prev,
+                      dcaTriangleScenario: "1",
+                    }))
+                  }
+                  className={`flex-1 p-4 rounded-xl text-sm transition-all ${
+                    formData.dcaTriangleScenario === "1"
+                      ? "bg-blue-500 text-white"
+                      : "bg-gray-100 hover:bg-gray-200"
+                  }`}
+                >
+                  <h3 className="font-bold mb-2">Scenario 1</h3>
+                  <p>Known: DCA Amount & Target Entry</p>
+                  <p className="text-xs mt-1 opacity-80">
+                    Calculate required entry price
+                  </p>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() =>
+                    setFormData((prev) => ({
+                      ...prev,
+                      dcaTriangleScenario: "2",
+                    }))
+                  }
+                  className={`flex-1 p-4 rounded-xl text-sm transition-all ${
+                    formData.dcaTriangleScenario === "2"
+                      ? "bg-blue-500 text-white"
+                      : "bg-gray-100 hover:bg-gray-200"
+                  }`}
+                >
+                  <h3 className="font-bold mb-2">Scenario 2</h3>
+                  <p>Known: Current Price & Target Entry</p>
+                  <p className="text-xs mt-1 opacity-80">
+                    Calculate required DCA amount
+                  </p>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() =>
+                    setFormData((prev) => ({
+                      ...prev,
+                      dcaTriangleScenario: "3",
+                    }))
+                  }
+                  className={`flex-1 p-4 rounded-xl text-sm transition-all ${
+                    formData.dcaTriangleScenario === "3"
+                      ? "bg-blue-500 text-white"
+                      : "bg-gray-100 hover:bg-gray-200"
+                  }`}
+                >
+                  <h3 className="font-bold mb-2">Scenario 3</h3>
+                  <p>Known: Current Price & DCA Amount</p>
+                  <p className="text-xs mt-1 opacity-80">
+                    Calculate resulting entry
+                  </p>
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                {formData.dcaTriangleScenario === "1" && (
+                  <>
+                    <InputField
+                      label="DCA Amount (USD)"
+                      name="dcaTriangleAmount"
+                      value={formData.dcaTriangleAmount}
+                      onChange={handleInputChange}
+                      error={errors.dcaTriangleAmount}
+                      placeholder="Enter DCA amount..."
+                      tooltip="How much additional money you want to invest"
+                    />
+                    <InputField
+                      label="Desired Average Entry"
+                      name="dcaTriangleTarget"
+                      value={formData.dcaTriangleTarget}
+                      onChange={handleInputChange}
+                      error={errors.dcaTriangleTarget}
+                      placeholder="Enter target entry..."
+                      tooltip="Your desired new average entry price"
+                    />
+                  </>
+                )}
+
+                {formData.dcaTriangleScenario === "2" && (
+                  <>
+                    <InputField
+                      label="Current Price"
+                      name="dcaTrianglePrice"
+                      value={formData.dcaTrianglePrice}
+                      onChange={handleInputChange}
+                      error={errors.dcaTrianglePrice}
+                      placeholder="Enter current price..."
+                      tooltip="The current market price"
+                    />
+                    <InputField
+                      label="Desired Average Entry"
+                      name="dcaTriangleTarget"
+                      value={formData.dcaTriangleTarget}
+                      onChange={handleInputChange}
+                      error={errors.dcaTriangleTarget}
+                      placeholder="Enter target entry..."
+                      tooltip="Your desired new average entry price"
+                    />
+                  </>
+                )}
+
+                {formData.dcaTriangleScenario === "3" && (
+                  <>
+                    <InputField
+                      label="Current Price"
+                      name="dcaTrianglePrice"
+                      value={formData.dcaTrianglePrice}
+                      onChange={handleInputChange}
+                      error={errors.dcaTrianglePrice}
+                      placeholder="Enter current price..."
+                      tooltip="The current market price"
+                    />
+                    <InputField
+                      label="DCA Amount (USD)"
+                      name="dcaTriangleAmount"
+                      value={formData.dcaTriangleAmount}
+                      onChange={handleInputChange}
+                      error={errors.dcaTriangleAmount}
+                      placeholder="Enter DCA amount..."
+                      tooltip="How much additional money you want to invest"
+                    />
+                  </>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Action Buttons */}
           <div className="flex gap-4 mt-8">
             <button
-              type="submit"
+              type="button"
+              onClick={() => {
+                switch (activeTab) {
+                  case "position":
+                    handleSubmit();
+                    break;
+                  case "dca":
+                    calculateDCA();
+                    break;
+                  case "target":
+                    calculateTargetDCA();
+                    break;
+                  case "triangle":
+                    calculateDCATriangle();
+                    break;
+                }
+              }}
               className="flex-1 bg-gradient-to-r from-blue-600 to-indigo-600 text-white py-4 px-6 rounded-xl text-lg font-semibold hover:from-blue-700 hover:to-indigo-700 transition-all shadow-md hover:shadow-lg"
             >
-              Calculate Position
+              {activeTab === "position"
+                ? "Calculate Position"
+                : activeTab === "dca"
+                ? "Calculate DCA"
+                : activeTab === "target"
+                ? "Calculate Required DCA"
+                : "Calculate DCA"}
             </button>
             <button
               type="button"
@@ -478,220 +741,195 @@ export default function Home() {
           </div>
         </form>
 
-        {results && (
+        {/* DCA Triangle Results */}
+        {dcaResults?.triangle && activeTab === "triangle" && (
+          <div className="bg-white rounded-2xl shadow-xl p-8">
+            <h2 className="text-2xl font-bold mb-6 text-gray-800">
+              DCA Triangle Results
+            </h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {dcaResults.triangle.scenario === 1 && (
+                <>
+                  <ResultCard
+                    title="Required DCA Price"
+                    value={`$${dcaResults.triangle.requiredPrice}`}
+                    bgColor="bg-purple-50"
+                    textColor="text-purple-600"
+                    subtitle="Enter at this price to reach target"
+                  />
+                  <ResultCard
+                    title="DCA Amount"
+                    value={`$${dcaResults.triangle.dcaAmount}`}
+                    subtitle="Additional investment"
+                  />
+                </>
+              )}
+
+              {dcaResults.triangle.scenario === 2 && (
+                <>
+                  <ResultCard
+                    title="Required DCA Amount"
+                    value={`$${dcaResults.triangle.requiredAmount}`}
+                    bgColor="bg-purple-50"
+                    textColor="text-purple-600"
+                    subtitle="Invest this amount to reach target"
+                  />
+                  <ResultCard
+                    title="Current Price"
+                    value={`$${dcaResults.triangle.currentPrice}`}
+                  />
+                </>
+              )}
+
+              {dcaResults.triangle.scenario === 3 && (
+                <>
+                  <ResultCard
+                    title="Resulting Average Entry"
+                    value={`$${dcaResults.triangle.resultingEntry}`}
+                    bgColor="bg-purple-50"
+                    textColor="text-purple-600"
+                    subtitle="Your new average entry price"
+                  />
+                  <ResultCard
+                    title="DCA Amount"
+                    value={`$${dcaResults.triangle.dcaAmount}`}
+                    subtitle="Additional investment"
+                  />
+                </>
+              )}
+
+              <ResultCard
+                title="Total Investment"
+                value={`$${dcaResults.triangle.totalInvestment}`}
+                bgColor="bg-blue-50"
+                textColor="text-blue-600"
+                subtitle="Real money invested"
+              />
+
+              <ResultCard
+                title="Leveraged Position"
+                value={`$${dcaResults.triangle.leveragedPosition}`}
+                bgColor="bg-indigo-50"
+                textColor="text-indigo-600"
+                subtitle="Total position size with leverage"
+              />
+            </div>
+          </div>
+        )}
+
+        {/* Results Sections */}
+        {results && activeTab === "position" && (
           <div className="bg-white rounded-2xl shadow-xl p-8">
             <h2 className="text-2xl font-bold mb-6 text-gray-800">
               Position Metrics
             </h2>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div className="bg-gray-50 p-6 rounded-xl">
-                <p className="text-sm font-semibold text-gray-600 mb-1">
-                  Total Position Size
-                </p>
-                <p className="text-2xl font-bold text-gray-900">
-                  ${results.totalPositionSize}
-                </p>
-              </div>
-              <div className="bg-gray-50 p-6 rounded-xl">
-                <p className="text-sm font-semibold text-gray-600 mb-1">
-                  Liquidation Price
-                </p>
-                <p className="text-2xl font-bold text-gray-900">
-                  ${results.liquidationPrice}
-                </p>
-              </div>
-              <div className="bg-green-50 p-6 rounded-xl">
-                <p className="text-sm font-semibold text-green-600 mb-1">
-                  Potential Profit
-                </p>
-                <p className="text-2xl font-bold text-green-600">
-                  ${results.potentialProfit}
-                </p>
-              </div>
-              <div className="bg-red-50 p-6 rounded-xl">
-                <p className="text-sm font-semibold text-red-600 mb-1">
-                  Potential Loss
-                </p>
-                <p className="text-2xl font-bold text-red-600">
-                  ${results.potentialLoss}
-                </p>
-              </div>
-              <div
-                className={`p-6 rounded-xl col-span-2 ${
-                  results.isGoodRiskReward ? "bg-green-50" : "bg-yellow-50"
-                }`}
-              >
-                <div className="flex items-start justify-between">
-                  <div>
-                    <p className="text-sm font-semibold text-gray-600 mb-1">
-                      Risk/Reward Ratio
-                    </p>
-                    <p
-                      className={`text-2xl font-bold ${
-                        results.isGoodRiskReward
-                          ? "text-green-600"
-                          : "text-yellow-600"
-                      }`}
-                    >
-                      {results.riskRewardRatio}
-                    </p>
-                  </div>
-                  <div className="bg-white p-4 rounded-lg shadow-sm max-w-xs">
-                    <p className="text-sm text-gray-600">
-                      Risk/Reward ratio shows how much you risk to potentially
-                      earn. A ratio of 1:2 means you risk $1 to potentially earn
-                      $2. Generally, a ratio of 1:2 or better (1:3, 1:4, etc.)
-                      is considered good trading practice.
-                    </p>
-                  </div>
-                </div>
-                <p className="text-sm mt-2 text-gray-600">
-                  {results.isGoodRiskReward
-                    ? "✅ Good risk/reward ratio - This trade has favorable risk management"
-                    : "⚠️ Consider adjusting your take profit or stop loss to improve the risk/reward ratio"}
-                </p>
-              </div>
+              <ResultCard
+                title="Total Position Size"
+                value={`$${results.totalPositionSize}`}
+              />
+              <ResultCard
+                title="Liquidation Price"
+                value={`$${results.liquidationPrice}`}
+              />
+              <ResultCard
+                title="Potential Profit"
+                value={`$${results.potentialProfit}`}
+                bgColor="bg-green-50"
+                textColor="text-green-600"
+              />
+              <ResultCard
+                title="Potential Loss"
+                value={`$${results.potentialLoss}`}
+                bgColor="bg-red-50"
+                textColor="text-red-600"
+              />
+              <ResultCard
+                title="Risk/Reward Ratio"
+                value={results.riskRewardRatio}
+                bgColor="bg-blue-50"
+                textColor="text-blue-600"
+                subtitle={
+                  parseFloat(results.riskRewardRatio) >= 2
+                    ? "✅ Good risk/reward ratio"
+                    : "⚠️ Consider adjusting your take profit or stop loss"
+                }
+              />
             </div>
           </div>
         )}
 
-        {dcaResults && (
-          <div className="bg-white rounded-2xl shadow-xl p-8 mt-8">
-            <h2 className="text-2xl font-bold mb-6 text-gray-800">
-              DCA Results
-            </h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div className="bg-gray-50 p-6 rounded-xl">
-                <p className="text-sm font-semibold text-gray-600 mb-1">
-                  Real Money Invested
-                </p>
-                <p className="text-2xl font-bold text-gray-900">
-                  ${dcaResults.totalInvestment}
-                </p>
-                <div className="mt-2 text-sm text-gray-600">
-                  <p>Initial: ${dcaResults.originalInvestment}</p>
-                  <p>DCA: ${dcaResults.dcaInvestment}</p>
-                </div>
-              </div>
-
-              <div className="bg-gray-50 p-6 rounded-xl">
-                <p className="text-sm font-semibold text-gray-600 mb-1">
-                  Current Value (Real Money)
-                </p>
-                <p className="text-2xl font-bold text-gray-900">
-                  ${dcaResults.currentValue}
-                </p>
-                <p className="mt-2 text-sm text-gray-600">
-                  With {dcaResults.totalContractQty} contracts
-                </p>
-              </div>
-
-              <div
-                className={`p-6 rounded-xl ${
-                  parseFloat(dcaResults.unrealizedPnL) >= 0
-                    ? "bg-green-50"
-                    : "bg-red-50"
-                }`}
-              >
-                <p className="text-sm font-semibold text-gray-600 mb-1">
-                  Real Money P/L
-                </p>
-                <p
-                  className={`text-2xl font-bold ${
-                    parseFloat(dcaResults.unrealizedPnL) >= 0
-                      ? "text-green-600"
-                      : "text-red-600"
-                  }`}
-                >
-                  ${dcaResults.unrealizedPnL}
-                </p>
-                <p className="mt-2 text-sm text-gray-600">
-                  ROI: {dcaResults.roiPercentage}%
-                </p>
-              </div>
-
-              <div className="bg-blue-50 p-6 rounded-xl">
-                <p className="text-sm font-semibold text-gray-600 mb-1">
-                  New Average Entry
-                </p>
-                <p className="text-2xl font-bold text-blue-600">
-                  ${dcaResults.newAverageEntry}
-                </p>
-                <p className="mt-2 text-sm text-gray-600">
-                  Need {dcaResults.breakevenPriceChange}% to breakeven
-                </p>
-              </div>
-
-              <div className="bg-indigo-50 p-6 rounded-xl col-span-2">
-                <p className="text-sm font-semibold text-gray-600 mb-1">
-                  Position Summary
-                </p>
-                <div className="grid grid-cols-2 gap-4 mt-2">
-                  <div>
-                    <p className="text-sm text-gray-600">Real Money Total</p>
-                    <p className="text-xl font-bold text-gray-900">
-                      ${dcaResults.totalInvestment}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-sm text-gray-600">
-                      Leveraged Position Size
-                    </p>
-                    <p className="text-xl font-bold text-gray-900">
-                      ${dcaResults.leveragedPosition}
-                    </p>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {dcaResults?.targetDCA && (
-          <div className="bg-white rounded-2xl shadow-xl p-8 mt-8">
+        {dcaResults?.targetDCA && activeTab === "target" && (
+          <div className="bg-white rounded-2xl shadow-xl p-8">
             <h2 className="text-2xl font-bold mb-6 text-gray-800">
               Target Entry Results
             </h2>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div className="bg-purple-50 p-6 rounded-xl">
-                <p className="text-sm font-semibold text-gray-600 mb-1">
-                  Required DCA Amount
-                </p>
-                <p className="text-2xl font-bold text-purple-600">
-                  ${dcaResults.targetDCA.dcaAmountNeeded}
-                </p>
-                <p className="mt-2 text-sm text-gray-600">
-                  {dcaResults.targetDCA.percentageIncrease}% of original
-                  investment
-                </p>
-              </div>
+              <ResultCard
+                title="Required DCA Amount"
+                value={`$${dcaResults.targetDCA.dcaAmountNeeded}`}
+                bgColor="bg-purple-50"
+                textColor="text-purple-600"
+                subtitle={`${dcaResults.targetDCA.percentageIncrease}% of original investment`}
+              />
+              <ResultCard
+                title="Target Average Entry"
+                value={`$${dcaResults.targetDCA.targetEntry}`}
+              />
+              <ResultCard
+                title="New Total Investment"
+                value={`$${dcaResults.targetDCA.newTotalInvestment}`}
+                bgColor="bg-indigo-50"
+                textColor="text-indigo-600"
+              />
+              <ResultCard
+                title="New Position Size"
+                value={`$${dcaResults.targetDCA.newPositionSize}`}
+                bgColor="bg-blue-50"
+                textColor="text-blue-600"
+              />
+            </div>
+          </div>
+        )}
 
-              <div className="bg-gray-50 p-6 rounded-xl">
-                <p className="text-sm font-semibold text-gray-600 mb-1">
-                  Target Average Entry
-                </p>
-                <p className="text-2xl font-bold text-gray-900">
-                  ${dcaResults.targetDCA.targetEntry}
-                </p>
-              </div>
-
-              <div className="bg-indigo-50 p-6 rounded-xl">
-                <p className="text-sm font-semibold text-gray-600 mb-1">
-                  New Total Investment
-                </p>
-                <p className="text-2xl font-bold text-indigo-600">
-                  ${dcaResults.targetDCA.newTotalInvestment}
-                </p>
-              </div>
-
-              <div className="bg-blue-50 p-6 rounded-xl">
-                <p className="text-sm font-semibold text-gray-600 mb-1">
-                  New Position Size
-                </p>
-                <p className="text-2xl font-bold text-blue-600">
-                  ${dcaResults.targetDCA.newPositionSize}
-                </p>
-              </div>
+        {dcaResults && activeTab === "dca" && (
+          <div className="bg-white rounded-2xl shadow-xl p-8">
+            <h2 className="text-2xl font-bold mb-6 text-gray-800">
+              DCA Results
+            </h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <ResultCard
+                title="Real Money Invested"
+                value={`$${dcaResults.totalInvestment}`}
+                subtitle={`Initial: $${dcaResults.originalInvestment} | DCA: $${dcaResults.dcaInvestment}`}
+              />
+              <ResultCard
+                title="Current Value (Real Money)"
+                value={`$${dcaResults.currentValue}`}
+                subtitle={`With ${dcaResults.totalContractQty} contracts`}
+              />
+              <ResultCard
+                title="Real Money P/L"
+                value={`$${dcaResults.unrealizedPnL}`}
+                bgColor={
+                  parseFloat(dcaResults.unrealizedPnL) >= 0
+                    ? "bg-green-50"
+                    : "bg-red-50"
+                }
+                textColor={
+                  parseFloat(dcaResults.unrealizedPnL) >= 0
+                    ? "text-green-600"
+                    : "text-red-600"
+                }
+                subtitle={`ROI: ${dcaResults.roiPercentage}%`}
+              />
+              <ResultCard
+                title="New Average Entry"
+                value={`$${dcaResults.newAverageEntry}`}
+                bgColor="bg-blue-50"
+                textColor="text-blue-600"
+                subtitle={`Need ${dcaResults.breakevenPriceChange}% to breakeven`}
+              />
             </div>
           </div>
         )}
